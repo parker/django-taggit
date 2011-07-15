@@ -37,12 +37,13 @@ class TaggableRel(ManyToManyRel):
 
 class TaggableManager(RelatedField):
     def __init__(self, verbose_name=_("Tags"),
-        help_text=_("A comma-separated list of tags."), through=None, blank=False):
+        help_text=_("A comma-separated list of tags."), through=None, blank=False, case_insensitive=True):
         self.through = through or TaggedItem
         self.rel = TaggableRel()
         self.verbose_name = verbose_name
         self.help_text = help_text
         self.blank = blank
+        self.case_insensitive = case_insensitive
         self.editable = True
         self.unique = False
         self.creates_table = False
@@ -58,7 +59,7 @@ class TaggableManager(RelatedField):
             raise ValueError("%s objects need to have a primary key value "
                 "before you can access their tags." % model.__name__)
         manager = _TaggableManager(
-            through=self.through, model=model, instance=instance
+            through=self.through, model=model, instance=instance, case_insensitive = self.case_insensitive
         )
         return manager
 
@@ -141,10 +142,11 @@ class TaggableManager(RelatedField):
 
 
 class _TaggableManager(models.Manager):
-    def __init__(self, through, model, instance):
+    def __init__(self, through, model, instance, case_insensitive=True):
         self.through = through
         self.model = model
         self.instance = instance
+        self.case_insensitive = case_insensitive
 
     def get_query_set(self):
         return self.through.tags_for(self.model, self.instance)
@@ -167,8 +169,11 @@ class _TaggableManager(models.Manager):
         )
         tag_objs.update(existing)
 
+        if self.case_insensitive:
+            existing_lower = set(t.name.lower() for t in existing)
         for new_tag in str_tags - set(t.name for t in existing):
-            tag_objs.add(self.through.tag_model().objects.create(name=new_tag))
+            if not self.case_insensitive or new_tag.lower() not in existing_lower:
+                tag_objs.add(self.through.tag_model().objects.create(name=new_tag))
 
         for tag in tag_objs:
             self.through.objects.get_or_create(tag=tag, **self._lookup_kwargs())
